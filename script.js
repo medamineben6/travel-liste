@@ -48,20 +48,38 @@ function renderPlaces(places) {
       <div class="place-top">
         <div>
           <h3 class="place-name">${safeName}</h3>
-          <p class="place-description">${safeDescription || "Aucune description."}</p>
+          <p class="place-description">
+            ${safeDescription || "Aucune description."}
+          </p>
         </div>
 
         <div class="card-actions">
-          <button class="icon-button copy-button" data-id="${place.id}"
-            title="Créer une copie" aria-label="Créer une copie">➕</button>
-          <button class="icon-button delete-button" data-id="${place.id}"
-            title="Supprimer" aria-label="Supprimer">×</button>
+          <button
+            class="icon-button edit-button"
+            data-id="${place.id}"
+            title="Modifier"
+            aria-label="Modifier"
+          >➕</button>
+
+          <button
+            class="icon-button delete-button"
+            data-id="${place.id}"
+            title="Supprimer"
+            aria-label="Supprimer"
+          >×</button>
         </div>
       </div>
 
-      ${place.google_maps
-        ? `<a class="map-link" href="${safeMaps}" target="_blank" rel="noopener noreferrer">Voir sur la carte →</a>`
-        : ""}
+      ${
+        place.google_maps
+          ? `<a
+              class="map-link"
+              href="${safeMaps}"
+              target="_blank"
+              rel="noopener noreferrer"
+            >Voir sur la carte →</a>`
+          : ""
+      }
     `;
 
     placesContainer.appendChild(card);
@@ -70,43 +88,69 @@ function renderPlaces(places) {
 
 async function loadPlaces(silent = false) {
   try {
-    const response = await fetch(api("/api/places"), { cache: "no-store" });
-    if (!response.ok) throw new Error();
+    const response = await fetch(api("/api/places"), {
+      cache: "no-store"
+    });
+
+    if (!response.ok) {
+      throw new Error();
+    }
 
     const places = await response.json();
+
     renderPlaces(places);
 
     status.textContent = "● Connecté";
     status.style.color = "#397052";
-    lastSync.textContent = `Dernière synchro : ${new Date().toLocaleTimeString("fr-FR")}`;
 
-    if (!silent) showMessage("");
+    lastSync.textContent =
+      `Dernière synchro : ${new Date().toLocaleTimeString("fr-FR")}`;
+
+    if (!silent) {
+      showMessage("");
+    }
+
   } catch {
     status.textContent = "● Hors connexion";
     status.style.color = "#a33b2e";
-    if (!silent) showMessage("Impossible de contacter le serveur.", "error");
+
+    if (!silent) {
+      showMessage(
+        "Impossible de contacter le serveur.",
+        "error"
+      );
+    }
   }
 }
 
-function prepareCopy(place) {
-  placeId.value = "";
+function prepareEdit(place) {
+  placeId.value = String(place.id);
+
   nameInput.value = place.name || "";
   descriptionInput.value = place.description || "";
   mapsInput.value = place.google_maps || "";
 
-  formTitle.textContent = "Créer un nouvel endroit";
-  submitButton.textContent = "Créer";
+  formTitle.textContent = "Modifier l'endroit";
+  submitButton.textContent = "Enregistrer";
+
   cancelEdit.classList.remove("hidden");
 
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  window.scrollTo({
+    top: 0,
+    behavior: "smooth"
+  });
+
   nameInput.focus();
 }
 
 function resetForm() {
   form.reset();
+
   placeId.value = "";
+
   formTitle.textContent = "Créer un nouvel endroit";
   submitButton.textContent = "Créer";
+
   cancelEdit.classList.add("hidden");
 }
 
@@ -119,28 +163,53 @@ form.addEventListener("submit", async (event) => {
     google_maps: mapsInput.value.trim()
   };
 
-  if (!data.name) return;
+  if (!data.name) {
+    return;
+  }
 
   submitButton.disabled = true;
 
   try {
-    const response = await fetch(api("/api/places"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data)
-    });
+    const id = placeId.value.trim();
+
+    const response = await fetch(
+      api(id ? `/api/places/${id}` : "/api/places"),
+      {
+        method: id ? "PUT" : "POST",
+
+        headers: {
+          "Content-Type": "application/json"
+        },
+
+        body: JSON.stringify(data)
+      }
+    );
 
     const result = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      throw new Error(result.error || "Une erreur est survenue.");
+      throw new Error(
+        result.error || "Une erreur est survenue."
+      );
     }
 
     resetForm();
-    showMessage("Lieu ajouté avec succès.", "success");
+
+    showMessage(
+      id
+        ? "Lieu modifié avec succès."
+        : "Lieu ajouté avec succès.",
+      "success"
+    );
+
     await loadPlaces(true);
+
   } catch (error) {
-    showMessage(error.message, "error");
+    showMessage(
+      error.message,
+      "error"
+    );
+
   } finally {
     submitButton.disabled = false;
   }
@@ -153,42 +222,91 @@ cancelEdit.addEventListener("click", () => {
 
 placesContainer.addEventListener("click", async (event) => {
   const button = event.target.closest("button");
-  if (!button) return;
 
-  const id = Number(button.dataset.id);
-
-  if (button.classList.contains("copy-button")) {
-    try {
-      const response = await fetch(api("/api/places"), { cache: "no-store" });
-      if (!response.ok) throw new Error();
-      const places = await response.json();
-      const place = places.find(item => Number(item.id) === id);
-      if (place) prepareCopy(place);
-    } catch {
-      showMessage("Impossible de récupérer le lieu.", "error");
-    }
+  if (!button) {
     return;
   }
 
-  if (button.classList.contains("delete-button")) {
-    try {
-      const response = await fetch(api(`/api/places/${id}`), {
-        method: "DELETE"
-      });
+  const id = Number(button.dataset.id);
 
-      const result = await response.json().catch(() => ({}));
+  /*
+   * MODIFIER
+   */
+  if (button.classList.contains("edit-button")) {
+
+    try {
+      const response = await fetch(
+        api("/api/places"),
+        {
+          cache: "no-store"
+        }
+      );
 
       if (!response.ok) {
-        throw new Error(result.error || "Impossible de supprimer le lieu.");
+        throw new Error();
       }
 
-      showMessage("Lieu supprimé.", "success");
+      const places = await response.json();
+
+      const place = places.find(
+        item => Number(item.id) === id
+      );
+
+      if (place) {
+        prepareEdit(place);
+      }
+
+    } catch {
+      showMessage(
+        "Impossible de récupérer le lieu.",
+        "error"
+      );
+    }
+
+    return;
+  }
+
+  /*
+   * SUPPRIMER
+   */
+  if (button.classList.contains("delete-button")) {
+
+    try {
+      const response = await fetch(
+        api(`/api/places/${id}`),
+        {
+          method: "DELETE"
+        }
+      );
+
+      const result =
+        await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          result.error ||
+          "Impossible de supprimer le lieu."
+        );
+      }
+
+      showMessage(
+        "Lieu supprimé.",
+        "success"
+      );
+
       await loadPlaces(true);
+
     } catch (error) {
-      showMessage(error.message, "error");
+      showMessage(
+        error.message,
+        "error"
+      );
     }
   }
 });
 
 loadPlaces();
-setInterval(() => loadPlaces(true), 5000);
+
+setInterval(() => {
+  loadPlaces(true);
+}, 5000);
